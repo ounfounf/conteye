@@ -652,7 +652,8 @@ Deno.test({
           worker.execute({
             request: xxhash3Request(testFiles.largeMB),
             resolve,
-            reject
+            reject,
+            queuedAt: Date.now()
           });
         });
 
@@ -676,7 +677,8 @@ Deno.test({
           worker.execute({
             request: xxhash3Request(`${tempDir}/does_not_exist_state_test.bin`),
             resolve,
-            reject
+            reject,
+            queuedAt: Date.now()
           });
         });
 

@@ -3,10 +3,28 @@ import { getAppLogger } from "~/logger.ts";
 
 const logger = getAppLogger("worker_pool");
 
+export type WorkerType = "local" | "remote";
+
+export interface WorkerInfo {
+  id: string;
+  type: WorkerType;
+  busy: boolean;
+  host?: string;
+}
+
 export type QueueRequest<T> = {
-  request: WorkRequest,
-  resolve: (value: T) => void,
-  reject: (reason?: any) => void,
+  request: WorkRequest;
+  resolve: (value: T) => void;
+  reject: (reason?: any) => void;
+  queuedAt: number;
+  taskId?: string;
+};
+
+export interface WorkerPoolHooks {
+  onTaskQueued?: (request: WorkRequest, taskId?: string) => void;
+  onTaskStarted?: (request: WorkRequest, workerId: string, taskId?: string) => void;
+  onTaskCompleted?: (request: WorkRequest, workerId: string, result: unknown, taskId?: string) => void;
+  onTaskFailed?: (request: WorkRequest, workerId: string, error: Error, taskId?: string) => void;
 }
 
 interface BaseWorker {
@@ -75,13 +93,21 @@ export class ThreadWorker implements BaseWorker {
 
 export class WorkerPool {
   pool: Array<BaseWorker>;
+  // deno-lint-ignore no-explicit-any
   queue: Array<QueueRequest<any>>;
   uuid: string;
-  constructor(pool: Array<BaseWorker>) {
+  hooks?: WorkerPoolHooks;
+
+  constructor(pool: Array<BaseWorker>, hooks?: WorkerPoolHooks) {
     this.pool = pool;
     this.queue = [];
     this.uuid = crypto.randomUUID();
+    this.hooks = hooks;
     logger.debug`WorkerPool ${this.uuid} constructed with ${pool.length} workers`;
+  }
+
+  setHooks(hooks: WorkerPoolHooks): void {
+    this.hooks = hooks;
   }
 
   close() {
@@ -104,10 +130,11 @@ export class WorkerPool {
   async connect(url: string): Promise<WebSocketRemoteProxy> {
     logger.debug`WorkerPool ${this.uuid} connecting to ${url}`;
     const socket = new WebSocket(url);
+    const host = new URL(url).host;
     const worker = await (new Promise<WebSocketRemoteProxy>((resolve) => {
       socket.onopen = () => {
         logger.debug`WorkerPool ${this.uuid} WebSocket connected to ${url}`;
-        resolve(new WebSocketRemoteProxy(socket, this.uuid));
+        resolve(new WebSocketRemoteProxy(socket, this.uuid, host));
       };
     }))
     this.pool.push(worker);
@@ -115,16 +142,19 @@ export class WorkerPool {
     return worker;
   }
 
-  execute<T>(request: WorkRequest): Promise<T> {
+  execute<T>(request: WorkRequest, taskId?: string): Promise<T> {
     const availableWorker = this.pool.find(w => !w.busy);
+    const queuedAt = Date.now();
     logger.debug`WorkerPool ${this.uuid} execute() action=${request.action} availableWorker=${!!availableWorker} queueLength=${this.queue.length}`;
     return new Promise<T>((resolve, reject) => {
-      const queueRequest: QueueRequest<T> = { request, resolve, reject };
+      const queueRequest: QueueRequest<T> = { request, resolve, reject, queuedAt, taskId };
       if (availableWorker) {
         logger.debug`WorkerPool ${this.uuid} dispatching to worker ${availableWorker.uuid}`;
+        this.hooks?.onTaskStarted?.(request, availableWorker.uuid, taskId);
         availableWorker.execute(queueRequest);
       } else {
         logger.debug`WorkerPool ${this.uuid} queueing request, new queueLength=${this.queue.length + 1}`;
+        this.hooks?.onTaskQueued?.(request, taskId);
         this.queue.push(queueRequest);
       }
     }).finally(() => {
@@ -134,10 +164,71 @@ export class WorkerPool {
         if (freeWorker) {
           logger.debug`WorkerPool ${this.uuid} processing queued request with worker ${freeWorker.uuid}`;
           const nextRequest = this.queue.shift()!;
+          this.hooks?.onTaskStarted?.(nextRequest.request, freeWorker.uuid, nextRequest.taskId);
           freeWorker.execute(nextRequest);
         }
       }
     });
+  }
+
+  // New methods for metrics and worker info
+
+  getWorkerInfo(): WorkerInfo[] {
+    return this.pool.map(worker => {
+      const isLocal = worker instanceof ThreadWorker;
+      return {
+        id: worker.uuid,
+        type: isLocal ? "local" : "remote" as WorkerType,
+        busy: worker.busy,
+        host: isLocal ? undefined : (worker as WebSocketRemoteProxy).host,
+      };
+    });
+  }
+
+  getQueueDepth(): number {
+    return this.queue.length;
+  }
+
+  getWorkerCount(): { total: number; local: number; remote: number; busy: number; idle: number } {
+    let local = 0;
+    let remote = 0;
+    let busy = 0;
+
+    for (const worker of this.pool) {
+      if (worker instanceof ThreadWorker) {
+        local++;
+      } else {
+        remote++;
+      }
+      if (worker.busy) {
+        busy++;
+      }
+    }
+
+    return {
+      total: this.pool.length,
+      local,
+      remote,
+      busy,
+      idle: this.pool.length - busy,
+    };
+  }
+
+  disconnectWorker(workerId: string): boolean {
+    const index = this.pool.findIndex(w => w.uuid === workerId);
+    if (index === -1) return false;
+
+    const worker = this.pool[index];
+    // Only allow disconnecting remote workers
+    if (worker instanceof ThreadWorker) {
+      logger.debug`WorkerPool ${this.uuid} cannot disconnect local worker ${workerId}`;
+      return false;
+    }
+
+    worker.close();
+    this.pool.splice(index, 1);
+    logger.debug`WorkerPool ${this.uuid} disconnected worker ${workerId}`;
+    return true;
   }
 }
 
@@ -225,8 +316,10 @@ class WebSocketLocalProxy {
 class WebSocketRemoteProxy implements BaseWorker {
   socket: WebSocket;
   busy: boolean;
+  host?: string;
 
-  constructor(socket: WebSocket, public uuid: string) {
+  constructor(socket: WebSocket, public uuid: string, host?: string) {
+    this.host = host;
     this.socket = socket;
     this.busy = false;
     logger.debug`WebSocketRemoteProxy ${uuid} constructed`;
