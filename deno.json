@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "@std/fs": "jsr:@std/fs@0.203.0",
+    "@logtape/logtape": "jsr:@logtape/logtape",
+    "hash-wasm": "npm:hash-wasm@4.11.0",
+    "~/": "./src/",
+    "~test/": "./test/"
+  },
+  "tasks": {
+    "main": "deno run --allow-read --allow-write --allow-ffi src/mod.ts",
+    "test": "deno test --allow-write --allow-read --allow-net"
+  }
+}

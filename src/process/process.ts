@@ -1,0 +1,1 @@
+export type Processor = (stream: ReadableStream<Uint8Array>) => Promise<string>
