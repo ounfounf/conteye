@@ -1,7 +1,7 @@
-import type { DuckDBConnection } from "npm:@duckdb/node-api";
-import { DuckDBInstance } from "npm:@duckdb/node-api";
-import { ProgressBar } from "jsr:@std/cli/unstable-progress-bar"
-import { dirname } from "jsr:@std/path/dirname";
+import type { DuckDBConnection } from "@duckdb/node-api";
+import { DuckDBInstance } from "@duckdb/node-api";
+import { ProgressBar } from "@std/cli/unstable-progress-bar";
+import { dirname } from "@std/path/dirname";
 import { WorkerPool } from "~/work/worker_pool.ts";
 import type { PathInfo, FileInfo } from '~/fs.ts'
 import { setupLogging, getAppLogger } from "~/logger.ts";

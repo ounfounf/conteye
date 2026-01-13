@@ -1,5 +1,5 @@
-import type { DuckDBConnection, DuckDBInstance } from "npm:@duckdb/node-api";
-import { DuckDBInstance as DuckDBInstanceClass } from "npm:@duckdb/node-api";
+import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
+import { DuckDBInstance as DuckDBInstanceClass } from "@duckdb/node-api";
 import { WorkerPool, WebSocketHost } from "~/work/worker_pool.ts";
 import { MetricsCollector } from "./metrics.ts";
 import { TaskManager } from "./task_manager.ts";

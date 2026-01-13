@@ -1,8 +1,8 @@
-import type { DuckDBConnection } from "npm:@duckdb/node-api";
+import type { DuckDBConnection } from "@duckdb/node-api";
 import type { WorkerPool } from "~/work/worker_pool.ts";
 import type { PathInfo, FileInfo } from "~/fs.ts";
 import type { ProcessorName } from "~/process/index.ts";
-import { dirname } from "jsr:@std/path/dirname";
+import { dirname } from "@std/path/dirname";
 import { getAppLogger } from "~/logger.ts";
 
 const logger = getAppLogger("ingest_manager");

@@ -1,4 +1,4 @@
-import { parseArgs } from "jsr:@std/cli/parse-args";
+import { parseArgs } from "@std/cli/parse-args";
 import { Instance, type InstanceConfig } from "~/core/instance.ts";
 import { createRouter } from "~/api/router.ts";
 import { setupLogging, getAppLogger } from "~/logger.ts";
