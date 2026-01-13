@@ -60,7 +60,7 @@ export const PeerCreate = () => {
           help="Enter the WebSocket URL of the remote ConTeye instance"
         >
           <Input
-            placeholder="ws://192.168.1.100:8000/ws"
+            placeholder="ws://192.168.1.100:8000/ws/workers"
             size="large"
           />
         </Form.Item>
