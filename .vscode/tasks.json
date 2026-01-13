@@ -44,6 +44,50 @@
                 "focus": false,
                 "panel": "shared"
             }
+        },
+        {
+            "label": "Check",
+            "type": "shell",
+            "command": "deno",
+            "args": [
+                "task",
+                "check"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$deno"
+            ]
+        },
+        {
+            "label": "Test",
+            "type": "shell",
+            "command": "deno",
+            "args": [
+                "task",
+                "test"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$deno"
+            ]
         }
     ]
 }
