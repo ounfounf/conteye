@@ -1,2 +1,6 @@
 *.db
+*.db.wal
 deno.lock
+.ignore/
+reference/
+tmpclaude*
