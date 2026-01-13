@@ -11,7 +11,8 @@
   },
   "tasks": {
     "main": "deno run --allow-read --allow-write --allow-ffi src/mod.ts",
-    "server": "deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts",
+    "server": "deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts --db tmp.db",
+    "server:worker": "deno run --allow-net --allow-read --allow-write src/server.ts --no-db",
     "test": "deno test src/ test/ --allow-write --allow-read --allow-net --allow-ffi",
     "check": "deno check src/ test/"
   }

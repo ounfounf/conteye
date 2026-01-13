@@ -8,7 +8,8 @@ const logger = getAppLogger("server");
 interface ServerArgs {
   port: number;
   hostname: string;
-  db: string;
+  db?: string;
+  noDb: boolean;
   workers?: number;
   help: boolean;
 }
@@ -23,7 +24,8 @@ USAGE:
 OPTIONS:
   --port <port>       Port to listen on (default: 8000)
   --hostname <host>   Hostname to bind to (default: 0.0.0.0)
-  --db <path>         Path to DuckDB database file (required)
+  --db <path>         Path to DuckDB database file
+  --no-db             Run as pure worker without database (disables ingest functionality)
   --workers <count>   Number of worker threads (default: CPU cores - 1)
   --help              Show this help message
 
@@ -33,6 +35,9 @@ EXAMPLES:
 
   # Start server on custom port
   deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts --port 8080 --db ./data.db
+
+  # Start server as pure worker without database
+  deno run --allow-net --allow-read --allow-write src/server.ts --no-db
 
   # Start server with custom worker count
   deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts --db ./data.db --workers 8
@@ -71,11 +76,12 @@ WEBSOCKET:
 function parseServerArgs(args: string[]): ServerArgs {
   const parsed = parseArgs(args, {
     string: ["port", "hostname", "db", "workers"],
-    boolean: ["help"],
+    boolean: ["help", "no-db"],
     default: {
       port: "8000",
       hostname: "0.0.0.0",
       help: false,
+      "no-db": false,
     },
   });
 
@@ -83,6 +89,7 @@ function parseServerArgs(args: string[]): ServerArgs {
     port: parseInt(parsed.port as string, 10),
     hostname: parsed.hostname as string,
     db: parsed.db as string,
+    noDb: parsed["no-db"] as boolean,
     workers: parsed.workers ? parseInt(parsed.workers as string, 10) : undefined,
     help: parsed.help as boolean,
   };
@@ -116,7 +123,7 @@ async function startServer(config: InstanceConfig): Promise<Instance> {
 ╠══════════════════════════════════════════════════════════════════╣
 ║  Instance ID: ${instance.id.substring(0, 50).padEnd(50)}║
 ║  Workers:     ${instance.pool.getWorkerCount().total.toString().padEnd(50)}║
-║  Database:    ${config.dbPath.substring(0, 50).padEnd(50)}║
+║  Database:    ${config.dbPath ? config.dbPath.substring(0, 50).padEnd(50) : "Disabled (pure worker mode)".padEnd(50)}║
 ╚══════════════════════════════════════════════════════════════════╝
 `);
       },
@@ -140,8 +147,14 @@ if (import.meta.main) {
     Deno.exit(0);
   }
 
-  if (!args.db) {
-    console.error("Error: --db <path> is required");
+  if (args.noDb && args.db) {
+    console.error("Error: Cannot specify both --db and --no-db");
+    console.error("Run with --help for usage information");
+    Deno.exit(1);
+  }
+
+  if (!args.noDb && !args.db) {
+    console.error("Error: Must specify either --db <path> or --no-db");
     console.error("Run with --help for usage information");
     Deno.exit(1);
   }

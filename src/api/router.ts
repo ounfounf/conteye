@@ -76,76 +76,62 @@ function createRoute(
 }
 
 // Define all routes
-const routes: Route[] = [
-  // Health and status
-  createRoute("GET", "/api/health", (instance) => handleGetHealth(instance)),
-  createRoute("GET", "/api/status", (instance) => handleGetStatus(instance)),
-  createRoute("GET", "/api/metrics", (instance) => handleGetMetrics(instance)),
+export function createRouter(instance: Instance) {
+  const routes: Route[] = [
+    // Health and status
+    createRoute("GET", "/api/health", (instance) => handleGetHealth(instance)),
+    createRoute("GET", "/api/status", (instance) => handleGetStatus(instance)),
+    createRoute("GET", "/api/metrics", (instance) => handleGetMetrics(instance)),
 
-  // Workers
-  createRoute("GET", "/api/workers", (instance) => handleGetWorkers(instance)),
-  createRoute("GET", "/api/workers/:id", (instance, _req, params) =>
-    handleGetWorker(instance, params.id)
-  ),
-  createRoute("POST", "/api/workers/remote", (instance, req) =>
-    handleConnectRemoteWorker(instance, req)
-  ),
-  createRoute("DELETE", "/api/workers/:id", (instance, _req, params) =>
-    handleDisconnectWorker(instance, params.id)
-  ),
+    // Workers
+    createRoute("GET", "/api/workers", (instance) => handleGetWorkers(instance)),
+    createRoute("GET", "/api/workers/:id", (instance, _req, params) =>
+      handleGetWorker(instance, params.id)
+    ),
+    createRoute("POST", "/api/workers/remote", (instance, req) =>
+      handleConnectRemoteWorker(instance, req)
+    ),
+    createRoute("DELETE", "/api/workers/:id", (instance, _req, params) =>
+      handleDisconnectWorker(instance, params.id)
+    ),
 
-  // Peers
-  createRoute("GET", "/api/peers", (instance) => handleGetPeers(instance)),
-  createRoute("POST", "/api/peers", (instance, req) =>
-    handleConnectPeer(instance, req)
-  ),
-  createRoute("DELETE", "/api/peers/:id", (instance, _req, params) =>
-    handleDisconnectPeer(instance, params.id)
-  ),
+    // Peers
+    createRoute("GET", "/api/peers", (instance) => handleGetPeers(instance)),
+    createRoute("POST", "/api/peers", (instance, req) =>
+      handleConnectPeer(instance, req)
+    ),
+    createRoute("DELETE", "/api/peers/:id", (instance, _req, params) =>
+      handleDisconnectPeer(instance, params.id)
+    ),
 
-  // Tasks
-  createRoute("GET", "/api/tasks", (instance, _req, _params, url) =>
-    handleGetTasks(instance, url)
-  ),
-  createRoute("GET", "/api/tasks/active", (instance) =>
-    handleGetActiveTasks(instance)
-  ),
-  createRoute("GET", "/api/tasks/summary", (instance) =>
-    handleGetTaskSummary(instance)
-  ),
-  createRoute("GET", "/api/tasks/:id", (instance, _req, params) =>
-    handleGetTask(instance, params.id)
-  ),
+    // Tasks
+    createRoute("GET", "/api/tasks", (instance, _req, _params, url) =>
+      handleGetTasks(instance, url)
+    ),
+    createRoute("GET", "/api/tasks/active", (instance) =>
+      handleGetActiveTasks(instance)
+    ),
+    createRoute("GET", "/api/tasks/summary", (instance) =>
+      handleGetTaskSummary(instance)
+    ),
+    createRoute("GET", "/api/tasks/:id", (instance, _req, params) =>
+      handleGetTask(instance, params.id)
+    ),
 
-  // Ingests
-  createRoute("GET", "/api/ingests", (instance) => handleGetIngests(instance)),
-  createRoute("GET", "/api/ingests/active", (instance) =>
-    handleGetActiveIngests(instance)
-  ),
-  createRoute("POST", "/api/ingests", (instance, req) =>
-    handleStartIngest(instance, req)
-  ),
-  createRoute("GET", "/api/ingests/:id", (instance, _req, params) =>
-    handleGetIngest(instance, params.id)
-  ),
-  createRoute("DELETE", "/api/ingests/:id", (instance, _req, params) =>
-    handleCancelIngest(instance, params.id)
-  ),
+    // OpenAPI spec
+    createRoute("GET", "/api/openapi.json", (instance) => {
+      const spec = generateOpenApiSpec(instance);
+      return Response.json(spec);
+    }),
 
-  // OpenAPI spec
-  createRoute("GET", "/api/openapi.json", (instance) => {
-    const spec = generateOpenApiSpec(instance);
-    return Response.json(spec);
-  }),
+    // GraphQL endpoint
+    createRoute("GET", "/graphql", (instance, req) => handleGraphQL(instance, req)),
+    createRoute("POST", "/graphql", (instance, req) => handleGraphQL(instance, req)),
+    createRoute("GET", "/graphql/schema", () => handleGraphQLSchema()),
 
-  // GraphQL endpoint
-  createRoute("GET", "/graphql", (instance, req) => handleGraphQL(instance, req)),
-  createRoute("POST", "/graphql", (instance, req) => handleGraphQL(instance, req)),
-  createRoute("GET", "/graphql/schema", () => handleGraphQLSchema()),
-
-  // Swagger UI
-  createRoute("GET", "/docs", () => {
-    const html = `<!DOCTYPE html>
+    // Swagger UI
+    createRoute("GET", "/docs", () => {
+      const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -179,22 +165,28 @@ const routes: Route[] = [
       headers: { "Location": "/docs" },
     });
   }),
-];
+  ];
 
-function addCorsHeaders(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  // Add ingest routes only if database is available
+  if (instance.ingestManager) {
+    routes.push(
+      // Ingests
+      createRoute("GET", "/api/ingests", (instance) => handleGetIngests(instance)),
+      createRoute("GET", "/api/ingests/active", (instance) =>
+        handleGetActiveIngests(instance)
+      ),
+      createRoute("POST", "/api/ingests", (instance, req) =>
+        handleStartIngest(instance, req)
+      ),
+      createRoute("GET", "/api/ingests/:id", (instance, _req, params) =>
+        handleGetIngest(instance, params.id)
+      ),
+      createRoute("DELETE", "/api/ingests/:id", (instance, _req, params) =>
+        handleCancelIngest(instance, params.id)
+      ),
+    );
+  }
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-export function createRouter(instance: Instance) {
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     const method = request.method;
@@ -244,6 +236,19 @@ export function createRouter(instance: Instance) {
       Response.json({ error: "Not found" }, { status: 404 })
     );
   };
+}
+
+function addCorsHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function handleWebSocketUpgrade(instance: Instance, request: Request): Response {

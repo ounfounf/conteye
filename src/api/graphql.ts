@@ -352,8 +352,8 @@ function createResolvers(instance: Instance) {
 
       // Ingests
       ingests: () => {
-        const jobs = instance.ingestManager.getJobs();
-        const activeJobs = instance.ingestManager.getActiveJobs();
+        const jobs = instance.ingestManager!.getJobs();
+        const activeJobs = instance.ingestManager!.getActiveJobs();
 
         const ingests = jobs.map(job => ({
           id: job.id,
@@ -374,11 +374,11 @@ function createResolvers(instance: Instance) {
       },
 
       ingest: (_: unknown, args: { id: string }) => {
-        return instance.ingestManager.getJob(args.id) || null;
+        return instance.ingestManager!.getJob(args.id) || null;
       },
 
       activeIngests: () => {
-        const activeJobs = instance.ingestManager.getActiveJobs();
+        const activeJobs = instance.ingestManager!.getActiveJobs();
 
         const ingests = activeJobs.map(job => ({
           id: job.id,
@@ -477,7 +477,7 @@ function createResolvers(instance: Instance) {
             options.processors = args.processors as ProcessorName[];
           }
 
-          const job = await instance.ingestManager.start(args.root, options);
+          const job = await instance.ingestManager!.start(args.root, options);
           return { success: true, ingest: job };
         } catch (error) {
           return {
@@ -488,7 +488,7 @@ function createResolvers(instance: Instance) {
       },
 
       cancelIngest: (_: unknown, args: { id: string }) => {
-        const success = instance.ingestManager.cancel(args.id);
+        const success = instance.ingestManager!.cancel(args.id);
         if (!success) {
           return { success: false, error: "Ingest job not found or already completed" };
         }

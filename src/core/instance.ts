@@ -1,10 +1,11 @@
-import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
-import { DuckDBInstance as DuckDBInstanceClass } from "@duckdb/node-api";
 import { WorkerPool, WebSocketHost } from "~/work/worker_pool.ts";
 import { MetricsCollector } from "./metrics.ts";
 import { TaskManager } from "./task_manager.ts";
 import { IngestManager } from "./ingest_manager.ts";
 import { getAppLogger } from "~/logger.ts";
+
+type DuckDBConnection = any;
+type DuckDBInstance = any;
 
 const logger = getAppLogger("instance");
 
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS files (
 export interface InstanceConfig {
   port: number;
   hostname?: string;
-  dbPath: string;
+  dbPath?: string;
   workerCount?: number;
 }
 
@@ -53,11 +54,11 @@ export class Instance {
   readonly config: InstanceConfig;
   readonly pool: WorkerPool;
   readonly wsHost: WebSocketHost;
-  readonly db: DuckDBConnection;
-  readonly dbInstance: DuckDBInstance;
+  readonly db?: DuckDBConnection;
+  readonly dbInstance?: DuckDBInstance;
   readonly metrics: MetricsCollector;
   readonly taskManager: TaskManager;
-  readonly ingestManager: IngestManager;
+  readonly ingestManager?: IngestManager;
 
   private readonly startTime: number;
   private readonly peers: Map<string, PeerInfo> = new Map();
@@ -67,8 +68,8 @@ export class Instance {
     config: InstanceConfig,
     pool: WorkerPool,
     wsHost: WebSocketHost,
-    dbInstance: DuckDBInstance,
-    db: DuckDBConnection,
+    dbInstance?: DuckDBInstance,
+    db?: DuckDBConnection,
   ) {
     this.id = crypto.randomUUID();
     this.config = config;
@@ -80,7 +81,7 @@ export class Instance {
 
     this.metrics = new MetricsCollector();
     this.taskManager = new TaskManager();
-    this.ingestManager = new IngestManager(db, pool);
+    this.ingestManager = db ? new IngestManager(db, pool) : undefined;
 
     // Set up hooks to connect pool to metrics
     this.pool.setHooks({
@@ -125,11 +126,20 @@ export class Instance {
     logger.debug`Creating WebSocket host`;
     const wsHost = await WebSocketHost.create(0, { port: 0 }); // Placeholder, will be integrated
 
-    // Create database connection
-    logger.debug`Opening database at ${config.dbPath}`;
-    const dbInstance = await DuckDBInstanceClass.create(config.dbPath);
-    const db = await dbInstance.connect();
-    await db.run(DB_SCHEMA);
+    let dbInstance: any;
+    let db: any;
+
+    if (config.dbPath) {
+      // Dynamically import DuckDB only when needed
+      const duckdb = await import("@duckdb/node-api");
+      const DuckDBInstanceClass = duckdb.DuckDBInstance;
+
+      // Create database connection
+      logger.debug`Opening database at ${config.dbPath}`;
+      dbInstance = await DuckDBInstanceClass.create(config.dbPath);
+      db = await dbInstance.connect();
+      await db.run(DB_SCHEMA);
+    }
 
     const instance = new Instance(config, pool, wsHost, dbInstance, db);
     return instance;
@@ -198,7 +208,7 @@ export class Instance {
     logger.info`Closing instance ${this.id}`;
 
     // Cancel all active ingests
-    this.ingestManager.clear();
+    this.ingestManager?.clear();
 
     // Close HTTP server
     if (this.httpServer) {
@@ -209,8 +219,10 @@ export class Instance {
     this.pool.close();
 
     // Close database
-    this.db.closeSync();
-    this.dbInstance.closeSync();
+    if (this.db && this.dbInstance) {
+      this.db.closeSync();
+      this.dbInstance.closeSync();
+    }
 
     logger.info`Instance ${this.id} closed`;
   }

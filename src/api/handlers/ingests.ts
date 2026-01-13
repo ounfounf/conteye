@@ -27,8 +27,8 @@ export interface CancelIngestResponse {
 }
 
 export function handleGetIngests(instance: Instance): Response {
-  const jobs = instance.ingestManager.getJobs();
-  const activeJobs = instance.ingestManager.getActiveJobs();
+  const jobs = instance.ingestManager!.getJobs();
+  const activeJobs = instance.ingestManager!.getActiveJobs();
 
   const summaries: IngestJobSummary[] = jobs.map(job => {
     const progress = job.totalFiles > 0
@@ -55,7 +55,7 @@ export function handleGetIngests(instance: Instance): Response {
 }
 
 export function handleGetIngest(instance: Instance, ingestId: string): Response {
-  const job = instance.ingestManager.getJob(ingestId);
+  const job = instance.ingestManager!.getJob(ingestId);
 
   if (!job) {
     return Response.json({ error: "Ingest job not found" }, { status: 404 });
@@ -99,7 +99,7 @@ export async function handleStartIngest(
       options.processors = body.processors;
     }
 
-    const job = await instance.ingestManager.start(body.root, options);
+    const job = await instance.ingestManager!.start(body.root, options);
 
     const response: StartIngestResponse = {
       success: true,
@@ -120,7 +120,7 @@ export function handleCancelIngest(
   instance: Instance,
   ingestId: string
 ): Response {
-  const success = instance.ingestManager.cancel(ingestId);
+  const success = instance.ingestManager!.cancel(ingestId);
 
   if (!success) {
     return Response.json(
@@ -134,7 +134,7 @@ export function handleCancelIngest(
 }
 
 export function handleGetActiveIngests(instance: Instance): Response {
-  const activeJobs = instance.ingestManager.getActiveJobs();
+  const activeJobs = instance.ingestManager!.getActiveJobs();
 
   const summaries: IngestJobSummary[] = activeJobs.map(job => {
     const progress = job.totalFiles > 0
