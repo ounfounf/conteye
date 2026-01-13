@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS files (
     xxhash3 TEXT NOT NULL,
     FOREIGN KEY (path) REFERENCES paths(path)
 );
+
+CREATE TABLE IF NOT EXISTS known_peers (
+    wsUrl TEXT PRIMARY KEY,
+    name TEXT,
+    autoConnect INTEGER NOT NULL DEFAULT 1,
+    createdAt INTEGER NOT NULL,
+    lastConnectedAt INTEGER
+);
 `;
 
 export interface InstanceConfig {
@@ -39,6 +47,14 @@ export interface PeerInfo {
   id: string;
   wsUrl: string;
   connectedAt: number;
+}
+
+export interface KnownPeer {
+  wsUrl: string;
+  name?: string;
+  autoConnect: boolean;
+  createdAt: number;
+  lastConnectedAt?: number;
 }
 
 export interface InstanceStatus {
@@ -198,6 +214,102 @@ export class Instance {
 
   getPeers(): PeerInfo[] {
     return Array.from(this.peers.values());
+  }
+
+  // Known peers management (persisted to database)
+
+  async saveKnownPeer(wsUrl: string, name?: string, autoConnect = true): Promise<KnownPeer> {
+    if (!this.db) {
+      throw new Error("Database not available - cannot save known peer");
+    }
+
+    const now = Date.now();
+    await this.db.run(`
+      INSERT INTO known_peers (wsUrl, name, autoConnect, createdAt)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(wsUrl) DO UPDATE SET
+        name = COALESCE(excluded.name, known_peers.name),
+        autoConnect = excluded.autoConnect
+    `, wsUrl, name ?? null, autoConnect ? 1 : 0, now);
+
+    logger.info`Saved known peer: wsUrl=${wsUrl}, name=${name ?? "none"}, autoConnect=${autoConnect}`;
+
+    return {
+      wsUrl,
+      name,
+      autoConnect,
+      createdAt: now,
+    };
+  }
+
+  async getKnownPeers(): Promise<KnownPeer[]> {
+    if (!this.db) {
+      return [];
+    }
+
+    const result = await this.db.run("SELECT * FROM known_peers ORDER BY createdAt ASC");
+    const rows = await result.getRows();
+
+    return rows.map((row: Record<string, unknown>) => ({
+      wsUrl: row.wsUrl as string,
+      name: row.name as string | undefined,
+      autoConnect: row.autoConnect === 1,
+      createdAt: row.createdAt as number,
+      lastConnectedAt: row.lastConnectedAt as number | undefined,
+    }));
+  }
+
+  async removeKnownPeer(wsUrl: string): Promise<boolean> {
+    if (!this.db) {
+      return false;
+    }
+
+    const result = await this.db.run("DELETE FROM known_peers WHERE wsUrl = ?", wsUrl);
+    const changes = result.rowsChanged ?? 0;
+
+    if (changes > 0) {
+      logger.info`Removed known peer: wsUrl=${wsUrl}`;
+      return true;
+    }
+    return false;
+  }
+
+  async updateKnownPeerLastConnected(wsUrl: string): Promise<void> {
+    if (!this.db) {
+      return;
+    }
+
+    await this.db.run(
+      "UPDATE known_peers SET lastConnectedAt = ? WHERE wsUrl = ?",
+      Date.now(),
+      wsUrl
+    );
+  }
+
+  async connectToKnownPeers(): Promise<{ connected: string[]; failed: Array<{ wsUrl: string; error: string }> }> {
+    const knownPeers = await this.getKnownPeers();
+    const autoConnectPeers = knownPeers.filter(p => p.autoConnect);
+
+    const connected: string[] = [];
+    const failed: Array<{ wsUrl: string; error: string }> = [];
+
+    logger.info`Attempting to connect to ${autoConnectPeers.length} known peers`;
+
+    for (const knownPeer of autoConnectPeers) {
+      try {
+        await this.connectToPeer(knownPeer.wsUrl);
+        await this.updateKnownPeerLastConnected(knownPeer.wsUrl);
+        connected.push(knownPeer.wsUrl);
+        logger.info`Connected to known peer: ${knownPeer.wsUrl}`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        failed.push({ wsUrl: knownPeer.wsUrl, error: message });
+        logger.warn`Failed to connect to known peer ${knownPeer.wsUrl}: ${message}`;
+      }
+    }
+
+    logger.info`Connected to ${connected.length}/${autoConnectPeers.length} known peers`;
+    return { connected, failed };
   }
 
   setHttpServer(server: Deno.HttpServer): void {

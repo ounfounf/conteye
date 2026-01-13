@@ -21,6 +21,7 @@ export const typeDefs = `
 
     # Peers
     peers: PeersResponse!
+    knownPeers: KnownPeersResponse!
 
     # Tasks
     tasks(status: [TaskStatus!], limit: Int, offset: Int): TasksResponse!
@@ -40,8 +41,13 @@ export const typeDefs = `
     disconnectWorker(id: ID!): DisconnectResponse!
 
     # Peers
-    connectPeer(wsUrl: String!): ConnectPeerResponse!
+    connectPeer(wsUrl: String!, save: Boolean, name: String): ConnectPeerResponse!
     disconnectPeer(id: ID!): DisconnectResponse!
+
+    # Known Peers
+    saveKnownPeer(wsUrl: String!, name: String, autoConnect: Boolean): SaveKnownPeerResponse!
+    removeKnownPeer(wsUrl: String!): DisconnectResponse!
+    connectToKnownPeers: ConnectToKnownPeersResponse!
 
     # Ingests
     startIngest(root: String!, processors: [String!]): StartIngestResponse!
@@ -153,7 +159,38 @@ export const typeDefs = `
   type ConnectPeerResponse {
     success: Boolean!
     peer: PeerInfo
+    saved: Boolean
     error: String
+  }
+
+  # Known Peer types
+  type KnownPeer {
+    wsUrl: String!
+    name: String
+    autoConnect: Boolean!
+    createdAt: Float!
+    lastConnectedAt: Float
+  }
+
+  type KnownPeersResponse {
+    knownPeers: [KnownPeer!]!
+  }
+
+  type SaveKnownPeerResponse {
+    success: Boolean!
+    knownPeer: KnownPeer
+    error: String
+  }
+
+  type ConnectToKnownPeersResponse {
+    success: Boolean!
+    connected: [String!]!
+    failed: [FailedPeerConnection!]!
+  }
+
+  type FailedPeerConnection {
+    wsUrl: String!
+    error: String!
   }
 
   # Task types
@@ -315,6 +352,12 @@ function createRootValue(instance: Instance) {
       return { peers };
     },
 
+    // Query: Known Peers
+    knownPeers: async () => {
+      const knownPeers = await instance.getKnownPeers();
+      return { knownPeers };
+    },
+
     // Query: Tasks
     tasks: ({ status, limit, offset }: { status?: string[]; limit?: number; offset?: number }) => {
       const filter: TaskFilter = {};
@@ -434,7 +477,7 @@ function createRootValue(instance: Instance) {
     },
 
     // Mutation: Peers
-    connectPeer: async ({ wsUrl }: { wsUrl: string }) => {
+    connectPeer: async ({ wsUrl, save, name }: { wsUrl: string; save?: boolean; name?: string }) => {
       // Validate WebSocket URL format
       try {
         const url = new URL(wsUrl);
@@ -447,7 +490,18 @@ function createRootValue(instance: Instance) {
 
       try {
         const peer = await instance.connectToPeer(wsUrl);
-        return { success: true, peer };
+
+        // Optionally save to known peers
+        if (save) {
+          try {
+            await instance.saveKnownPeer(wsUrl, name, true);
+            await instance.updateKnownPeerLastConnected(wsUrl);
+          } catch {
+            // Ignore save errors - connection still succeeded
+          }
+        }
+
+        return { success: true, peer, saved: save ?? false };
       } catch (error) {
         return {
           success: false,
@@ -462,6 +516,46 @@ function createRootValue(instance: Instance) {
         return { success: false, error: "Peer not found" };
       }
       return { success: true };
+    },
+
+    // Mutation: Known Peers
+    saveKnownPeer: async ({ wsUrl, name, autoConnect }: { wsUrl: string; name?: string; autoConnect?: boolean }) => {
+      // Validate WebSocket URL format
+      try {
+        const url = new URL(wsUrl);
+        if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+          return { success: false, error: "Invalid wsUrl format - must use ws:// or wss://" };
+        }
+      } catch {
+        return { success: false, error: "Invalid wsUrl format" };
+      }
+
+      try {
+        const knownPeer = await instance.saveKnownPeer(wsUrl, name, autoConnect ?? true);
+        return { success: true, knownPeer };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+
+    removeKnownPeer: async ({ wsUrl }: { wsUrl: string }) => {
+      const success = await instance.removeKnownPeer(wsUrl);
+      if (!success) {
+        return { success: false, error: "Known peer not found" };
+      }
+      return { success: true };
+    },
+
+    connectToKnownPeers: async () => {
+      const result = await instance.connectToKnownPeers();
+      return {
+        success: true,
+        connected: result.connected,
+        failed: result.failed,
+      };
     },
 
     // Mutation: Ingests

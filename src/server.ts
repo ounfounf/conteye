@@ -133,6 +133,17 @@ async function startServer(config: InstanceConfig): Promise<Instance> {
 
   instance.setHttpServer(server);
 
+  // Connect to known peers on startup
+  if (config.dbPath) {
+    const peerResult = await instance.connectToKnownPeers();
+    if (peerResult.connected.length > 0) {
+      logger.info`Auto-connected to ${peerResult.connected.length} known peer(s)`;
+    }
+    if (peerResult.failed.length > 0) {
+      logger.warn`Failed to connect to ${peerResult.failed.length} known peer(s)`;
+    }
+  }
+
   return instance;
 }
 

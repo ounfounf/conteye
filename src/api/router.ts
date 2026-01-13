@@ -16,6 +16,10 @@ import {
   handleGetPeers,
   handleConnectPeer,
   handleDisconnectPeer,
+  handleGetKnownPeers,
+  handleSaveKnownPeer,
+  handleRemoveKnownPeer,
+  handleConnectToKnownPeers,
 } from "./handlers/workers.ts";
 
 import {
@@ -102,6 +106,20 @@ export function createRouter(instance: Instance) {
     ),
     createRoute("DELETE", "/api/peers/:id", (instance, _req, params) =>
       handleDisconnectPeer(instance, params.id)
+    ),
+
+    // Known peers (persisted)
+    createRoute("GET", "/api/peers/known", (instance) =>
+      handleGetKnownPeers(instance)
+    ),
+    createRoute("POST", "/api/peers/known", (instance, req) =>
+      handleSaveKnownPeer(instance, req)
+    ),
+    createRoute("POST", "/api/peers/known/connect", (instance) =>
+      handleConnectToKnownPeers(instance)
+    ),
+    createRoute("DELETE", "/api/peers/known/:wsUrl", (instance, _req, params) =>
+      handleRemoveKnownPeer(instance, params.wsUrl)
     ),
 
     // Tasks
