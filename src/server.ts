@@ -21,7 +21,7 @@ USAGE:
   deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts [OPTIONS]
 
 OPTIONS:
-  --port <port>       Port to listen on (default: 3000)
+  --port <port>       Port to listen on (default: 8000)
   --hostname <host>   Hostname to bind to (default: 0.0.0.0)
   --db <path>         Path to DuckDB database file (required)
   --workers <count>   Number of worker threads (default: CPU cores - 1)
@@ -73,7 +73,7 @@ function parseServerArgs(args: string[]): ServerArgs {
     string: ["port", "hostname", "db", "workers"],
     boolean: ["help"],
     default: {
-      port: "3000",
+      port: "8000",
       hostname: "0.0.0.0",
       help: false,
     },
