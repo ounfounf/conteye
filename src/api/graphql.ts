@@ -129,9 +129,42 @@ export const typeDefs = `
     idle: Int!
   }
 
+  # Remote worker status for admin UI monitoring.
+  # Does NOT affect computation - each remote is still a single worker for ingest/process.
+  type RemoteWorkerStatus {
+    peerId: ID!
+    host: String!
+    totalWorkers: Int!
+    localWorkers: Int!
+    remoteWorkers: Int!
+    busyWorkers: Int!
+    idleWorkers: Int!
+    pendingTasks: Int!
+    runningTasks: Int!
+    lastUpdated: Float!
+  }
+
+  # Aggregated counts including actual remote worker details (for admin display)
+  type AggregatedWorkerSummary {
+    # Standard counts (remotes count as 1 each for computation)
+    total: Int!
+    local: Int!
+    remote: Int!
+    busy: Int!
+    idle: Int!
+    # Actual counts across all remotes (for admin UI display only)
+    remoteActualTotal: Int!
+    remoteActualBusy: Int!
+    remoteActualIdle: Int!
+  }
+
   type WorkersResponse {
     workers: [WorkerInfo!]!
     summary: WorkerSummary!
+    # Remote worker details for admin UI monitoring
+    remoteStatuses: [RemoteWorkerStatus!]!
+    # Aggregated counts including actual remote worker counts
+    aggregatedSummary: AggregatedWorkerSummary!
   }
 
   type ConnectWorkerResponse {
@@ -337,7 +370,9 @@ function createRootValue(instance: Instance) {
     workers: () => {
       const workers = instance.pool.getWorkerInfo();
       const summary = instance.pool.getWorkerCount();
-      return { workers, summary };
+      const remoteStatuses = instance.pool.getRemoteWorkerStatuses();
+      const aggregatedSummary = instance.pool.getAggregatedWorkerCount();
+      return { workers, summary, remoteStatuses, aggregatedSummary };
     },
 
     worker: ({ id }: { id: string }) => {

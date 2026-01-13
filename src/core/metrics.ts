@@ -10,6 +10,34 @@ export interface WorkerMetrics {
   idle: number;
 }
 
+/**
+ * Status reported by a remote peer about its workers.
+ * This is for admin UI monitoring/visibility only - does NOT affect
+ * computation where each remote is still treated as a single worker.
+ */
+export interface RemoteWorkerStatus {
+  /** The remote peer's ID (worker UUID in the local pool) */
+  peerId: string;
+  /** Host address of the remote */
+  host: string;
+  /** Total workers on the remote instance */
+  totalWorkers: number;
+  /** Local workers on the remote */
+  localWorkers: number;
+  /** Remote workers connected to the remote (nested remotes) */
+  remoteWorkers: number;
+  /** Busy workers on the remote */
+  busyWorkers: number;
+  /** Idle workers on the remote */
+  idleWorkers: number;
+  /** Tasks currently pending in the remote's queue */
+  pendingTasks: number;
+  /** Tasks currently running on the remote */
+  runningTasks: number;
+  /** Last time status was updated (timestamp) */
+  lastUpdated: number;
+}
+
 export interface TaskMetrics {
   pending: number;
   running: number;

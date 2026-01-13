@@ -21,6 +21,28 @@ const QUERIES = {
           busy
           idle
         }
+        remoteStatuses {
+          peerId
+          host
+          totalWorkers
+          localWorkers
+          remoteWorkers
+          busyWorkers
+          idleWorkers
+          pendingTasks
+          runningTasks
+          lastUpdated
+        }
+        aggregatedSummary {
+          total
+          local
+          remote
+          busy
+          idle
+          remoteActualTotal
+          remoteActualBusy
+          remoteActualIdle
+        }
       }
     }
   `,

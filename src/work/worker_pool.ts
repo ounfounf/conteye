@@ -1,4 +1,5 @@
 import type { WorkRequest } from "./request.ts";
+import type { RemoteWorkerStatus } from "~/core/metrics.ts";
 import { getAppLogger } from "~/logger.ts";
 
 const logger = getAppLogger("worker_pool");
@@ -252,11 +253,86 @@ export class WorkerPool {
     logger.debug`WorkerPool ${this.uuid} disconnected worker ${workerId}`;
     return true;
   }
+
+  /**
+   * Get status reports from all connected remote workers.
+   * For admin UI monitoring only - does NOT affect computation.
+   */
+  getRemoteWorkerStatuses(): RemoteWorkerStatus[] {
+    const statuses: RemoteWorkerStatus[] = [];
+    for (const worker of this.pool) {
+      if (!(worker instanceof ThreadWorker)) {
+        const remote = worker as WebSocketRemoteProxy;
+        if (remote.remoteStatus) {
+          statuses.push(remote.remoteStatus);
+        }
+      }
+    }
+    return statuses;
+  }
+
+  /**
+   * Get aggregated worker counts including remote worker details.
+   * For admin UI monitoring only - does NOT affect computation.
+   * Returns counts where remotes are expanded to show their actual workers.
+   */
+  getAggregatedWorkerCount(): {
+    total: number;
+    local: number;
+    remote: number;
+    busy: number;
+    idle: number;
+    /** Actual total workers across all remotes (for display) */
+    remoteActualTotal: number;
+    /** Actual busy workers across all remotes (for display) */
+    remoteActualBusy: number;
+    /** Actual idle workers across all remotes (for display) */
+    remoteActualIdle: number;
+  } {
+    const basic = this.getWorkerCount();
+    let remoteActualTotal = 0;
+    let remoteActualBusy = 0;
+    let remoteActualIdle = 0;
+
+    for (const worker of this.pool) {
+      if (!(worker instanceof ThreadWorker)) {
+        const remote = worker as WebSocketRemoteProxy;
+        if (remote.remoteStatus) {
+          remoteActualTotal += remote.remoteStatus.totalWorkers;
+          remoteActualBusy += remote.remoteStatus.busyWorkers;
+          remoteActualIdle += remote.remoteStatus.idleWorkers;
+        }
+      }
+    }
+
+    return {
+      ...basic,
+      remoteActualTotal,
+      remoteActualBusy,
+      remoteActualIdle,
+    };
+  }
+}
+
+/**
+ * Worker status info sent from remote to client.
+ * For admin UI monitoring only - does NOT affect computation.
+ */
+interface WorkerStatusInfo {
+  totalWorkers: number;
+  localWorkers: number;
+  remoteWorkers: number;
+  busyWorkers: number;
+  idleWorkers: number;
+  pendingTasks: number;
+  runningTasks: number;
 }
 
 type WebSocketResponse = {
   busy: boolean;
   uuid: string;
+  /** Optional worker status from the remote instance */
+  workerStatus?: WorkerStatusInfo;
 } & (
   {
     error: string;
@@ -289,7 +365,8 @@ class WebSocketLocalProxy {
       this.send({
         uuid: clientUuid,
         busy: this.busy,
-        alive: true
+        alive: true,
+        workerStatus: this.getWorkerStatus(),
       });
       logger.debug`WebSocketLocalProxy ${this.uuid} executing request action=${request.action}`;
       this.pool.execute(request)
@@ -298,7 +375,8 @@ class WebSocketLocalProxy {
           this.send({
             uuid: clientUuid,
             busy: this.busy,
-            result
+            result,
+            workerStatus: this.getWorkerStatus(),
           });
         })
         .catch(error => {
@@ -306,7 +384,8 @@ class WebSocketLocalProxy {
           this.send({
             uuid: clientUuid,
             busy: this.busy,
-            error: error.message
+            error: error.message,
+            workerStatus: this.getWorkerStatus(),
           });
         });
     };
@@ -333,12 +412,35 @@ class WebSocketLocalProxy {
   get busy() {
     return this.pool.pool.every(worker => worker.busy);
   }
+
+  /**
+   * Get worker status info to send to clients.
+   * For admin UI monitoring only.
+   */
+  getWorkerStatus(): WorkerStatusInfo {
+    const counts = this.pool.getWorkerCount();
+    return {
+      totalWorkers: counts.total,
+      localWorkers: counts.local,
+      remoteWorkers: counts.remote,
+      busyWorkers: counts.busy,
+      idleWorkers: counts.idle,
+      pendingTasks: this.pool.getQueueDepth(),
+      runningTasks: counts.busy, // running = busy workers
+    };
+  }
 }
 
 class WebSocketRemoteProxy implements BaseWorker {
   socket: WebSocket;
   busy: boolean;
   host?: string;
+
+  /**
+   * Status reported by the remote about its workers.
+   * For admin UI monitoring only - does NOT affect computation.
+   */
+  remoteStatus?: RemoteWorkerStatus;
 
   constructor(socket: WebSocket, public uuid: string, host?: string) {
     this.host = host;
@@ -369,6 +471,23 @@ class WebSocketRemoteProxy implements BaseWorker {
       }
 
       this.busy = data.busy;
+
+      // Update remote worker status if provided (for admin UI monitoring)
+      if (data.workerStatus) {
+        this.remoteStatus = {
+          peerId: this.uuid,
+          host: this.host || 'unknown',
+          totalWorkers: data.workerStatus.totalWorkers,
+          localWorkers: data.workerStatus.localWorkers,
+          remoteWorkers: data.workerStatus.remoteWorkers,
+          busyWorkers: data.workerStatus.busyWorkers,
+          idleWorkers: data.workerStatus.idleWorkers,
+          pendingTasks: data.workerStatus.pendingTasks,
+          runningTasks: data.workerStatus.runningTasks,
+          lastUpdated: Date.now(),
+        };
+        logger.debug`WebSocketRemoteProxy ${this.uuid} updated remote status: total=${data.workerStatus.totalWorkers} busy=${data.workerStatus.busyWorkers}`;
+      }
 
       if ('alive' in data) {
         logger.debug`WebSocketRemoteProxy ${this.uuid} received alive ping`;
