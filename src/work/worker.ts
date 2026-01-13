@@ -17,6 +17,11 @@ self.onmessage = async (event: MessageEvent<WorkRequest>) => {
 
   try {
     logger.debug `Worker ${uuid} processing ${request.action} request`;
+    if (request.action === 'ping') {
+      logger.debug `Worker ${uuid} ping received`;
+      self.postMessage({ uuid, result: 'pong' });
+      return;
+    }
     const result = request.action === 'open'
       ? await applyProcess(request)
       : await applyFs(request);

@@ -450,6 +450,10 @@ class WebSocketLocalProxy {
         alive: true,
         workerStatus: this.getWorkerStatus(),
       });
+      if (request.action === 'ping') {
+        logger.debug`WebSocketLocalProxy ${this.uuid} ping request, not executing`;
+        return;
+      }
       logger.debug`WebSocketLocalProxy ${this.uuid} executing request action=${request.action}`;
       this.pool.execute(request)
         .then(result => {
@@ -544,6 +548,47 @@ class WebSocketRemoteProxy implements BaseWorker {
         this.pool.onRemoteDisconnected(this.host, this.url);
       }
     }
+
+    // Handle incoming messages (for ping responses and status updates)
+    this.socket.onmessage = (event: MessageEvent<string>) => {
+      const data: WebSocketResponse = JSON.parse(event.data);
+      logger.debug`WebSocketRemoteProxy ${this.uuid} received unsolicited message: uuid=${data.uuid} busy=${data.busy} hasAlive=${'alive' in data} hasResult=${'result' in data} hasError=${'error' in data}`;
+
+      if (data.uuid !== this.uuid) {
+        logger.debug`WebSocketRemoteProxy ${this.uuid} ignoring message for uuid ${data.uuid}`;
+        return;
+      }
+
+      this.busy = data.busy;
+
+      // Update remote worker status if provided
+      if (data.workerStatus) {
+        this.remoteStatus = {
+          peerId: this.uuid,
+          host: this.host || 'unknown',
+          totalWorkers: data.workerStatus.totalWorkers,
+          localWorkers: data.workerStatus.localWorkers,
+          remoteWorkers: data.workerStatus.remoteWorkers,
+          busyWorkers: data.workerStatus.busyWorkers,
+          idleWorkers: data.workerStatus.idleWorkers,
+          pendingTasks: data.workerStatus.pendingTasks,
+          runningTasks: data.workerStatus.runningTasks,
+          lastUpdated: Date.now(),
+        };
+        logger.debug`WebSocketRemoteProxy ${this.uuid} updated remote status from unsolicited message: total=${data.workerStatus.totalWorkers} busy=${data.workerStatus.busyWorkers}`;
+      }
+
+      if ('alive' in data) {
+        logger.debug`WebSocketRemoteProxy ${this.uuid} received alive ping`;
+      } else if ('result' in data) {
+        logger.debug`WebSocketRemoteProxy ${this.uuid} received unexpected result`;
+      } else if ('error' in data) {
+        logger.debug`WebSocketRemoteProxy ${this.uuid} received unexpected error: ${data.error}`;
+      }
+    };
+
+    // Send initial ping to get worker status
+    this.ping();
   }
 
   execute<T>(request: QueueRequest<T>): void {
@@ -604,6 +649,15 @@ class WebSocketRemoteProxy implements BaseWorker {
     const requestWithUuid = { ...request.request, clientUuid: this.uuid };
     logger.debug`WebSocketRemoteProxy ${this.uuid} sending request to socket`;
     this.socket.send(JSON.stringify(requestWithUuid));
+  }
+
+  /**
+   * Send a ping to the remote to get updated worker status.
+   */
+  ping(): void {
+    logger.debug`WebSocketRemoteProxy ${this.uuid} sending ping`;
+    const pingMessage = { action: 'ping', clientUuid: this.uuid };
+    this.socket.send(JSON.stringify(pingMessage));
   }
 
   close(): void {
