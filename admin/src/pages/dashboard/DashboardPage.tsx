@@ -146,7 +146,7 @@ export const DashboardPage = () => {
                 {health?.status?.toUpperCase()}
               </Tag>
               <Statistic title="Version" value={status?.version || "-"} />
-              <Statistic title="Uptime" value={formatUptime(status?.uptime || 0)} />
+              <Statistic title="Uptime" value={formatUptime((status?.uptime || 0) / 1000)} />
               <div>
                 <Text type="secondary">WebSocket URL</Text>
                 <br />
