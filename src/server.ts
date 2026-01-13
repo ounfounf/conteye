@@ -65,7 +65,9 @@ API ENDPOINTS:
   GET  /api/ingests/:id         Get ingest details
   DELETE /api/ingests/:id       Cancel ingest job
 
-  GET  /api/openapi.json        OpenAPI specification
+  GET  /graphql                 GraphQL playground (GraphiQL)
+  POST /graphql                 GraphQL endpoint
+  GET  /graphql/schema          GraphQL schema
 
 WEBSOCKET:
   /ws/workers                   Worker pool connection endpoint
@@ -112,14 +114,14 @@ async function startServer(config: InstanceConfig): Promise<Instance> {
       onListen: ({ hostname, port }) => {
         logger.info`Server listening on http://${hostname}:${port}`;
         logger.info`WebSocket endpoint: ws://${hostname}:${port}/ws/workers`;
-        logger.info`OpenAPI spec: http://${hostname}:${port}/api/openapi.json`;
+        logger.info`GraphQL endpoint: http://${hostname}:${port}/graphql`;
         console.log(`
 ╔══════════════════════════════════════════════════════════════════╗
 ║                      ConTeye Server Started                      ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  HTTP API:    http://${hostname}:${port.toString().padEnd(37)}║
 ║  WebSocket:   ws://${hostname}:${port.toString().padEnd(40)}║
-║  OpenAPI:     http://${hostname}:${port}/api/openapi.json${" ".repeat(Math.max(0, 20 - port.toString().length))}║
+║  GraphQL:     http://${hostname}:${port}/graphql${" ".repeat(Math.max(0, 27 - port.toString().length))}║
 ╠══════════════════════════════════════════════════════════════════╣
 ║  Instance ID: ${instance.id.substring(0, 50).padEnd(50)}║
 ║  Workers:     ${instance.pool.getWorkerCount().total.toString().padEnd(50)}║

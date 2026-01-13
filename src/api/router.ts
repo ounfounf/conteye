@@ -37,7 +37,6 @@ import {
   handleGetActiveIngests,
 } from "./handlers/ingests.ts";
 
-import { generateOpenApiSpec } from "./openapi.ts";
 import { handleGraphQL, handleGraphQLSchema } from "./graphql.ts";
 
 const logger = getAppLogger("router");
@@ -136,53 +135,18 @@ export function createRouter(instance: Instance) {
       handleGetTask(instance, params.id)
     ),
 
-    // OpenAPI spec
-    createRoute("GET", "/api/openapi.json", (instance) => {
-      const spec = generateOpenApiSpec(instance);
-      return Response.json(spec);
-    }),
-
     // GraphQL endpoint
     createRoute("GET", "/graphql", (instance, req) => handleGraphQL(instance, req)),
     createRoute("POST", "/graphql", (instance, req) => handleGraphQL(instance, req)),
     createRoute("GET", "/graphql/schema", () => handleGraphQLSchema()),
 
-    // Swagger UI
-    createRoute("GET", "/docs", () => {
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API Documentation</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: '/api/openapi.json',
-      dom_id: '#swagger-ui',
-      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-      layout: 'StandaloneLayout'
-    });
-  </script>
-</body>
-</html>`;
-    return new Response(html, {
-      headers: { "Content-Type": "text/html" },
-    });
-  }),
-
-  // Root redirect to docs
-  createRoute("GET", "/", () => {
-    return new Response(null, {
-      status: 302,
-      headers: { "Location": "/docs" },
-    });
-  }),
+    // Root redirect to GraphQL playground
+    createRoute("GET", "/", () => {
+      return new Response(null, {
+        status: 302,
+        headers: { "Location": "/graphql" },
+      });
+    }),
   ];
 
   // Add ingest routes only if database is available

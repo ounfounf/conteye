@@ -427,23 +427,6 @@ Deno.test({ name: "API Router", sanitizeOps: false, sanitizeResources: false }, 
     }
   });
 
-  // OpenAPI endpoint tests
-  await t.step("GET /api/openapi.json returns OpenAPI spec", async () => {
-    const { router, cleanup } = await setupTestInstance();
-    try {
-      const response = await router(createRequest("GET", "/api/openapi.json"));
-      const data = await response.json();
-
-      assertEquals(response.status, 200);
-      assertEquals(data.openapi, "3.0.3");
-      assertExists(data.info);
-      assertExists(data.paths);
-      assertExists(data.components);
-    } finally {
-      await cleanup();
-    }
-  });
-
   // 404 tests
   await t.step("returns 404 for unknown routes", async () => {
     const { router, cleanup } = await setupTestInstance();
