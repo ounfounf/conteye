@@ -41,7 +41,7 @@ export const typeDefs = `
     disconnectWorker(id: ID!): DisconnectResponse!
 
     # Peers
-    connectPeer(wsUrl: String!, save: Boolean, name: String): ConnectPeerResponse!
+    connectPeer(wsUrl: String!, name: String): ConnectPeerResponse!
     disconnectPeer(id: ID!): DisconnectResponse!
 
     # Known Peers
@@ -159,7 +159,6 @@ export const typeDefs = `
   type ConnectPeerResponse {
     success: Boolean!
     peer: PeerInfo
-    saved: Boolean
     error: String
   }
 
@@ -477,7 +476,7 @@ function createRootValue(instance: Instance) {
     },
 
     // Mutation: Peers
-    connectPeer: async ({ wsUrl, save, name }: { wsUrl: string; save?: boolean; name?: string }) => {
+    connectPeer: async ({ wsUrl, name }: { wsUrl: string; name?: string }) => {
       // Validate WebSocket URL format
       try {
         const url = new URL(wsUrl);
@@ -489,19 +488,9 @@ function createRootValue(instance: Instance) {
       }
 
       try {
-        const peer = await instance.connectToPeer(wsUrl);
-
-        // Optionally save to known peers
-        if (save) {
-          try {
-            await instance.saveKnownPeer(wsUrl, name, true);
-            await instance.updateKnownPeerLastConnected(wsUrl);
-          } catch {
-            // Ignore save errors - connection still succeeded
-          }
-        }
-
-        return { success: true, peer, saved: save ?? false };
+        // connectToPeer now automatically saves to known_peers when DB is available
+        const peer = await instance.connectToPeer(wsUrl, name);
+        return { success: true, peer };
       } catch (error) {
         return {
           success: false,

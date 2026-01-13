@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS known_peers (
     wsUrl TEXT PRIMARY KEY,
     name TEXT,
     autoConnect INTEGER NOT NULL DEFAULT 1,
-    createdAt INTEGER NOT NULL,
-    lastConnectedAt INTEGER
+    createdAt BIGINT NOT NULL,
+    lastConnectedAt BIGINT
 );
 `;
 
@@ -176,7 +176,7 @@ export class Instance {
     };
   }
 
-  async connectToPeer(wsUrl: string): Promise<PeerInfo> {
+  async connectToPeer(wsUrl: string, name?: string): Promise<PeerInfo> {
     logger.info`Connecting to peer at ${wsUrl}`;
     await this.pool.connect(wsUrl);
 
@@ -186,6 +186,17 @@ export class Instance {
       connectedAt: Date.now(),
     };
     this.peers.set(peer.id, peer);
+
+    // Automatically save to known peers if database is available
+    if (this.db) {
+      try {
+        await this.saveKnownPeer(wsUrl, name, true);
+        await this.updateKnownPeerLastConnected(wsUrl);
+      } catch (error) {
+        // Log but don't fail the connection if save fails
+        logger.warn`Failed to save known peer ${wsUrl}: ${error}`;
+      }
+    }
 
     logger.info`Connected to peer: id=${peer.id}, wsUrl=${wsUrl}`;
     return peer;
@@ -224,13 +235,20 @@ export class Instance {
     }
 
     const now = Date.now();
-    await this.db.run(`
+    const stmt = await this.db.prepare(`
       INSERT INTO known_peers (wsUrl, name, autoConnect, createdAt)
-      VALUES (?, ?, ?, ?)
+      VALUES ($wsUrl, $name, $autoConnect, $createdAt)
       ON CONFLICT(wsUrl) DO UPDATE SET
         name = COALESCE(excluded.name, known_peers.name),
         autoConnect = excluded.autoConnect
-    `, wsUrl, name ?? null, autoConnect ? 1 : 0, now);
+    `);
+    stmt.bind({
+      wsUrl,
+      name: name ?? null,
+      autoConnect: autoConnect ? 1 : 0,
+      createdAt: BigInt(now),
+    });
+    await stmt.run();
 
     logger.info`Saved known peer: wsUrl=${wsUrl}, name=${name ?? "none"}, autoConnect=${autoConnect}`;
 
@@ -248,14 +266,20 @@ export class Instance {
     }
 
     const result = await this.db.run("SELECT * FROM known_peers ORDER BY createdAt ASC");
-    const rows = await result.getRows();
+    const rows = (await result.getRowObjects()) as Array<{
+      wsUrl: string;
+      name: string | null;
+      autoConnect: number;
+      createdAt: bigint;
+      lastConnectedAt: bigint | null;
+    }>;
 
-    return rows.map((row: Record<string, unknown>) => ({
-      wsUrl: row.wsUrl as string,
-      name: row.name as string | undefined,
+    return rows.map((row) => ({
+      wsUrl: row.wsUrl,
+      name: row.name ?? undefined,
       autoConnect: row.autoConnect === 1,
-      createdAt: row.createdAt as number,
-      lastConnectedAt: row.lastConnectedAt as number | undefined,
+      createdAt: Number(row.createdAt),
+      lastConnectedAt: row.lastConnectedAt ? Number(row.lastConnectedAt) : undefined,
     }));
   }
 
@@ -264,7 +288,9 @@ export class Instance {
       return false;
     }
 
-    const result = await this.db.run("DELETE FROM known_peers WHERE wsUrl = ?", wsUrl);
+    const stmt = await this.db.prepare("DELETE FROM known_peers WHERE wsUrl = $wsUrl");
+    stmt.bind({ wsUrl });
+    const result = await stmt.run();
     const changes = result.rowsChanged ?? 0;
 
     if (changes > 0) {
@@ -279,11 +305,14 @@ export class Instance {
       return;
     }
 
-    await this.db.run(
-      "UPDATE known_peers SET lastConnectedAt = ? WHERE wsUrl = ?",
-      Date.now(),
-      wsUrl
+    const stmt = await this.db.prepare(
+      "UPDATE known_peers SET lastConnectedAt = $lastConnectedAt WHERE wsUrl = $wsUrl"
     );
+    stmt.bind({
+      lastConnectedAt: BigInt(Date.now()),
+      wsUrl,
+    });
+    await stmt.run();
   }
 
   async connectToKnownPeers(): Promise<{ connected: string[]; failed: Array<{ wsUrl: string; error: string }> }> {

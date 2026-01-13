@@ -132,7 +132,6 @@ export function handleGetPeers(instance: Instance): Response {
 
 export interface ConnectPeerRequest {
   wsUrl: string;
-  save?: boolean;
   name?: string;
 }
 
@@ -166,19 +165,10 @@ export async function handleConnectPeer(
       );
     }
 
-    const peer = await instance.connectToPeer(body.wsUrl);
+    // connectToPeer now automatically saves to known_peers when DB is available
+    const peer = await instance.connectToPeer(body.wsUrl, body.name);
 
-    // Optionally save to known peers
-    if (body.save) {
-      try {
-        await instance.saveKnownPeer(body.wsUrl, body.name, true);
-        await instance.updateKnownPeerLastConnected(body.wsUrl);
-      } catch {
-        // Ignore save errors - connection still succeeded
-      }
-    }
-
-    return Response.json({ success: true, peer, saved: body.save ?? false }, { status: 201 });
+    return Response.json({ success: true, peer }, { status: 201 });
   } catch (error) {
     return Response.json(
       { success: false, error: error instanceof Error ? error.message : "Unknown error" },
