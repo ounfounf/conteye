@@ -3,7 +3,8 @@
     "allow": [
       "Bash(deno check:*)",
       "Bash(deno task:*)",
-      "Bash(deno test:*)"
+      "Bash(deno test:*)",
+      "Bash(deno run:*)"
     ]
   }
 }

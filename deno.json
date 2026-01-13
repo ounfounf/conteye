@@ -6,14 +6,14 @@
     "@logtape/logtape": "jsr:@logtape/logtape",
     "@duckdb/node-api": "npm:@duckdb/node-api",
     "hash-wasm": "npm:hash-wasm@4.11.0",
+    "graphql": "npm:graphql@16.9.0",
     "~/": "./src/",
     "~test/": "./test/"
   },
   "tasks": {
-    "main": "deno run --allow-read --allow-write --allow-ffi src/mod.ts",
-    "server": "deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts --db tmp.db",
-    "server:worker": "deno run --allow-net --allow-read --allow-write src/server.ts --no-db",
-    "test": "deno test src/ test/ --allow-write --allow-read --allow-net --allow-ffi",
+    "server": "deno run --allow-net --allow-read --allow-write --allow-ffi --allow-env src/server.ts --db tmp.db",
+    "server:worker": "deno run --allow-net --allow-read --allow-write --allow-env src/server.ts --no-db",
+    "test": "deno test src/ test/ --allow-write --allow-read --allow-net --allow-ffi --allow-env",
     "check": "deno check src/ test/"
   }
 }

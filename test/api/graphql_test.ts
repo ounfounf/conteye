@@ -668,7 +668,86 @@ Deno.test({ name: "GraphQL API", sanitizeOps: false, sanitizeResources: false },
 
       assertEquals(response.status, 200);
       assertEquals(data.data.connectPeer.success, false);
-      assertStringIncludes(data.data.connectPeer.error, "Invalid");
+      assertStringIncludes(data.data.connectPeer.error, "Invalid wsUrl format");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  await t.step("Mutation: connectPeer accepts valid WebSocket URLs", async () => {
+    const { router, cleanup } = await setupTestInstance();
+    try {
+      // Test ws:// URL without path
+      const response1 = await router(
+        createGraphQLRequest(`
+          mutation {
+            connectPeer(wsUrl: "ws://127.0.0.1:8000") {
+              success
+              peer {
+                id
+                wsUrl
+              }
+              error
+            }
+          }
+        `)
+      );
+      const data1 = await response1.json();
+
+      assertEquals(response1.status, 200);
+      // Should not fail with "Invalid wsUrl format" - connection may fail but validation should pass
+      if (!data1.data.connectPeer.success) {
+        assertEquals(data1.data.connectPeer.error.includes("Invalid wsUrl format"), false, 
+          `Expected validation to pass, but got error: ${data1.data.connectPeer.error}`);
+      }
+
+      // Test ws:// URL with path
+      const response2 = await router(
+        createGraphQLRequest(`
+          mutation {
+            connectPeer(wsUrl: "ws://127.0.0.1:8000/ws") {
+              success
+              peer {
+                id
+                wsUrl
+              }
+              error
+            }
+          }
+        `)
+      );
+      const data2 = await response2.json();
+
+      assertEquals(response2.status, 200);
+      // Should not fail with "Invalid wsUrl format" - connection may fail but validation should pass
+      if (!data2.data.connectPeer.success) {
+        assertEquals(data2.data.connectPeer.error.includes("Invalid wsUrl format"), false, 
+          `Expected validation to pass, but got error: ${data2.data.connectPeer.error}`);
+      }
+
+      // Test wss:// URL
+      const response3 = await router(
+        createGraphQLRequest(`
+          mutation {
+            connectPeer(wsUrl: "wss://example.com:8080") {
+              success
+              peer {
+                id
+                wsUrl
+              }
+              error
+            }
+          }
+        `)
+      );
+      const data3 = await response3.json();
+
+      assertEquals(response3.status, 200);
+      // Should not fail with "Invalid wsUrl format" - connection may fail but validation should pass
+      if (!data3.data.connectPeer.success) {
+        assertEquals(data3.data.connectPeer.error.includes("Invalid wsUrl format"), false, 
+          `Expected validation to pass, but got error: ${data3.data.connectPeer.error}`);
+      }
     } finally {
       await cleanup();
     }
@@ -906,10 +985,11 @@ Deno.test({ name: "GraphQL API", sanitizeOps: false, sanitizeResources: false },
   });
 
   // Multi-operation document tests (like GraphiQL default template)
-  await t.step("handles document with multiple named operations - executes first by default", async () => {
+  await t.step("handles document with multiple named operations - requires operationName", async () => {
     const { router, cleanup } = await setupTestInstance();
     try {
-      // Document with multiple named operations (like GraphiQL default)
+      // Document with multiple named operations without operationName
+      // Per GraphQL spec, this should return an error
       const response = await router(
         createGraphQLRequest(`
           query GetDashboard {
@@ -945,11 +1025,9 @@ Deno.test({ name: "GraphQL API", sanitizeOps: false, sanitizeResources: false },
       const data = await response.json();
 
       assertEquals(response.status, 200);
-      // Should execute the first operation (GetDashboard)
-      assertExists(data.data.health);
-      assertEquals(data.data.health.status, "healthy");
-      assertExists(data.data.status);
-      assertExists(data.data.status.id);
+      // Per GraphQL spec, multiple operations require operationName
+      assertExists(data.errors);
+      assertStringIncludes(data.errors[0].message, "operation");
     } finally {
       await cleanup();
     }
@@ -1024,8 +1102,8 @@ Deno.test({ name: "GraphQL API", sanitizeOps: false, sanitizeResources: false },
 
       assertEquals(response.status, 200);
       assertExists(data.errors);
+      // Error message should mention the unknown operation name
       assertStringIncludes(data.errors[0].message, "NonExistentOperation");
-      assertStringIncludes(data.errors[0].message, "not found");
     } finally {
       await cleanup();
     }

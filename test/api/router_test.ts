@@ -183,6 +183,41 @@ Deno.test({ name: "API Router", sanitizeOps: false, sanitizeResources: false }, 
     }
   });
 
+  await t.step("POST /api/peers accepts valid WebSocket URLs", async () => {
+    const { router, cleanup } = await setupTestInstance();
+    try {
+      // Test ws:// URL without path - connection will fail but URL validation should pass
+      const response1 = await router(createRequest("POST", "/api/peers", { wsUrl: "ws://10.0.0.31:8000" }));
+      const data1 = await response1.json();
+
+      // Connection will fail (no server), but should NOT fail with "Invalid wsUrl format"
+      if (!data1.success) {
+        assertEquals(data1.error.includes("Invalid wsUrl format"), false,
+          `Expected validation to pass, but got error: ${data1.error}`);
+      }
+
+      // Test ws:// URL with path
+      const response2 = await router(createRequest("POST", "/api/peers", { wsUrl: "ws://10.0.0.31:8000/ws" }));
+      const data2 = await response2.json();
+
+      if (!data2.success) {
+        assertEquals(data2.error.includes("Invalid wsUrl format"), false,
+          `Expected validation to pass, but got error: ${data2.error}`);
+      }
+
+      // Test wss:// URL
+      const response3 = await router(createRequest("POST", "/api/peers", { wsUrl: "wss://example.com:8080" }));
+      const data3 = await response3.json();
+
+      if (!data3.success) {
+        assertEquals(data3.error.includes("Invalid wsUrl format"), false,
+          `Expected validation to pass, but got error: ${data3.error}`);
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
   await t.step("DELETE /api/peers/:id returns 404 for non-existent peer", async () => {
     const { router, cleanup } = await setupTestInstance();
     try {

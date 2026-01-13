@@ -128,13 +128,35 @@ export class WorkerPool {
   }
 
   async connect(url: string): Promise<WebSocketRemoteProxy> {
+    if (!url || typeof url !== 'string') {
+      throw new Error("Invalid wsUrl format");
+    }
     logger.debug`WorkerPool ${this.uuid} connecting to ${url}`;
-    const socket = new WebSocket(url);
-    const host = new URL(url).host;
-    const worker = await (new Promise<WebSocketRemoteProxy>((resolve) => {
+    // Parse host from URL
+    const urlWithoutProtocol = url.replace(/^wss?:\/\//, '');
+    const host = urlWithoutProtocol.split('/')[0];
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(url);
+    } catch (error) {
+      if (url.startsWith('ws://') || url.startsWith('wss://')) {
+        throw new Error("WebSocket connection failed");
+      } else {
+        throw new Error("Invalid wsUrl format");
+      }
+    }
+    const worker = await (new Promise<WebSocketRemoteProxy>((resolve, reject) => {
       socket.onopen = () => {
         logger.debug`WorkerPool ${this.uuid} WebSocket connected to ${url}`;
         resolve(new WebSocketRemoteProxy(socket, this.uuid, host));
+      };
+      socket.onerror = (event) => {
+        logger.debug`WorkerPool ${this.uuid} WebSocket error: ${event}`;
+        reject(new Error("WebSocket connection failed"));
+      };
+      socket.onclose = (event) => {
+        logger.debug`WorkerPool ${this.uuid} WebSocket closed: ${event}`;
+        reject(new Error("WebSocket connection closed"));
       };
     }))
     this.pool.push(worker);

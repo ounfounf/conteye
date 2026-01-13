@@ -66,7 +66,13 @@ export async function handleConnectRemoteWorker(
 
     // Validate URL format
     try {
-      new URL(body.wsUrl);
+      const url = new URL(body.wsUrl);
+      if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+        return Response.json(
+          { success: false, error: "Invalid wsUrl format" },
+          { status: 400 }
+        );
+      }
     } catch {
       return Response.json(
         { success: false, error: "Invalid wsUrl format" },
@@ -134,6 +140,22 @@ export async function handleConnectPeer(
     if (!body.wsUrl) {
       return Response.json(
         { success: false, error: "wsUrl is required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate URL format
+    try {
+      const url = new URL(body.wsUrl);
+      if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+        return Response.json(
+          { success: false, error: "Invalid wsUrl format" },
+          { status: 400 }
+        );
+      }
+    } catch {
+      return Response.json(
+        { success: false, error: "Invalid wsUrl format" },
         { status: 400 }
       );
     }
