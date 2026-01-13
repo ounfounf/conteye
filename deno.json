@@ -12,7 +12,7 @@
   "tasks": {
     "main": "deno run --allow-read --allow-write --allow-ffi src/mod.ts",
     "server": "deno run --allow-net --allow-read --allow-write --allow-ffi src/server.ts",
-    "test": "deno test --allow-write --allow-read --allow-net --allow-ffi",
+    "test": "deno test src/ test/ --allow-write --allow-read --allow-net --allow-ffi",
     "check": "deno check src/ test/"
   }
 }
