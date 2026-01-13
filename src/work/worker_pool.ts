@@ -16,7 +16,7 @@ export interface WorkerInfo {
 export type QueueRequest<T> = {
   request: WorkRequest;
   resolve: (value: T) => void;
-  reject: (reason?: any) => void;
+  reject: (reason?: Error) => void;
   queuedAt: number;
   taskId?: string;
 };
@@ -98,12 +98,18 @@ export class WorkerPool {
   queue: Array<QueueRequest<any>>;
   uuid: string;
   hooks?: WorkerPoolHooks;
+  // Track disconnected remote workers for autoreconnect
+  disconnectedRemotes: Array<{ url: string; host: string; lastAttempt: number }>;
+  autoreconnectInterval?: number;
+  // Track for testing
+  disconnectedCalled = false;
 
   constructor(pool: Array<BaseWorker>, hooks?: WorkerPoolHooks) {
     this.pool = pool;
     this.queue = [];
     this.uuid = crypto.randomUUID();
     this.hooks = hooks;
+    this.disconnectedRemotes = [];
     logger.debug`WorkerPool ${this.uuid} constructed with ${pool.length} workers`;
   }
 
@@ -113,6 +119,7 @@ export class WorkerPool {
 
   close() {
     logger.debug`WorkerPool ${this.uuid} closing ${this.pool.length} workers`;
+    this.stopAutoreconnect();
     this.pool.forEach(worker => worker.close());
     this.pool.length = 0;
   }
@@ -139,7 +146,7 @@ export class WorkerPool {
     let socket: WebSocket;
     try {
       socket = new WebSocket(url);
-    } catch (error) {
+    } catch (_error) {
       if (url.startsWith('ws://') || url.startsWith('wss://')) {
         throw new Error("WebSocket connection failed");
       } else {
@@ -149,7 +156,7 @@ export class WorkerPool {
     const worker = await (new Promise<WebSocketRemoteProxy>((resolve, reject) => {
       socket.onopen = () => {
         logger.debug`WorkerPool ${this.uuid} WebSocket connected to ${url}`;
-        resolve(new WebSocketRemoteProxy(socket, this.uuid, host));
+        resolve(new WebSocketRemoteProxy(socket, this.uuid, host, this, url));
       };
       socket.onerror = (event) => {
         logger.debug`WorkerPool ${this.uuid} WebSocket error: ${event}`;
@@ -312,6 +319,81 @@ export class WorkerPool {
       remoteActualIdle,
     };
   }
+
+  onRemoteDisconnected(host: string, url: string): number {
+    // Check if already disconnected
+    if (this.disconnectedRemotes.some(r => r.host === host)) {
+      return this.disconnectedRemotes.length;
+    }
+    // Remove the disconnected worker from the pool
+    this.pool = this.pool.filter(w => {
+      if (w instanceof WebSocketRemoteProxy && w.host === host) {
+        w.close(); // Close the socket
+        return false;
+      }
+      return true;
+    });
+    this.disconnectedRemotes.push({ url, host, lastAttempt: Date.now() });
+    return this.disconnectedRemotes.length;
+  }
+
+  getOfflinePeers(): Array<{ host: string; url: string; lastAttempt: number }> {
+    return this.disconnectedRemotes;
+  }
+
+  startAutoreconnect(intervalMs: number = 30000, cooldownMs: number = 30000): void {
+    if (this.autoreconnectInterval) {
+      clearInterval(this.autoreconnectInterval);
+    }
+    this.autoreconnectInterval = setInterval(() => {
+      this.attemptReconnects(cooldownMs);
+    }, intervalMs);
+    logger.debug`WorkerPool ${this.uuid} started autoreconnect with interval ${intervalMs}ms and cooldown ${cooldownMs}ms`;
+  }
+
+  stopAutoreconnect(): void {
+    if (this.autoreconnectInterval) {
+      clearInterval(this.autoreconnectInterval);
+      this.autoreconnectInterval = undefined;
+      logger.debug`WorkerPool ${this.uuid} stopped autoreconnect`;
+    }
+  }
+
+  private async attemptReconnects(cooldownMs: number): Promise<void> {
+    const now = Date.now();
+    const toReconnect = this.disconnectedRemotes.filter(r => now - r.lastAttempt > cooldownMs);
+
+    for (const remote of toReconnect) {
+      try {
+        logger.debug`WorkerPool ${this.uuid} attempting to reconnect to ${remote.host}`;
+        await this.connect(remote.url);
+        // Remove from disconnected list on success
+        this.disconnectedRemotes = this.disconnectedRemotes.filter(r => r.host !== remote.host);
+        logger.debug`WorkerPool ${this.uuid} successfully reconnected to ${remote.host}`;
+      } catch (error) {
+        logger.debug`WorkerPool ${this.uuid} failed to reconnect to ${remote.host}: ${error}`;
+        // Update last attempt time
+        remote.lastAttempt = now;
+      }
+    }
+  }
+
+  async manualReconnect(host: string): Promise<boolean> {
+    const remote = this.disconnectedRemotes.find(r => r.host === host);
+    if (!remote) {
+      return false;
+    }
+
+    try {
+      await this.connect(remote.url);
+      this.disconnectedRemotes = this.disconnectedRemotes.filter(r => r.host !== host);
+      logger.debug`WorkerPool ${this.uuid} manually reconnected to ${host}`;
+      return true;
+    } catch (error) {
+      logger.debug`WorkerPool ${this.uuid} manual reconnect to ${host} failed: ${error}`;
+      return false;
+    }
+  }
 }
 
 /**
@@ -337,7 +419,7 @@ type WebSocketResponse = {
   {
     error: string;
   } | {
-    result: any;
+    result: unknown;
   } | {
     alive: true;
   }
@@ -391,8 +473,8 @@ class WebSocketLocalProxy {
     };
 
     this.socket.onclose = () => {
-      logger.debug`WebSocketLocalProxy ${this.uuid} socket closed, closing pool`;
-      this.pool.close();
+      logger.debug`WebSocketLocalProxy ${this.uuid} socket closed`;
+      // Don't close the pool, as other connections may still be active
     }
 
     this.socket.onerror = (event) => {
@@ -435,6 +517,8 @@ class WebSocketRemoteProxy implements BaseWorker {
   socket: WebSocket;
   busy: boolean;
   host?: string;
+  pool?: WorkerPool;
+  url?: string;
 
   /**
    * Status reported by the remote about its workers.
@@ -442,8 +526,10 @@ class WebSocketRemoteProxy implements BaseWorker {
    */
   remoteStatus?: RemoteWorkerStatus;
 
-  constructor(socket: WebSocket, public uuid: string, host?: string) {
+  constructor(socket: WebSocket, public uuid: string, host?: string, pool?: WorkerPool, url?: string) {
     this.host = host;
+    this.pool = pool;
+    this.url = url;
     this.socket = socket;
     this.busy = false;
     logger.debug`WebSocketRemoteProxy ${uuid} constructed`;
@@ -454,6 +540,9 @@ class WebSocketRemoteProxy implements BaseWorker {
 
     this.socket.onclose = () => {
       logger.debug`WebSocketRemoteProxy ${this.uuid} socket closed`;
+      if (this.pool && this.host && this.url) {
+        this.pool.onRemoteDisconnected(this.host, this.url);
+      }
     }
   }
 
@@ -503,7 +592,7 @@ class WebSocketRemoteProxy implements BaseWorker {
       }
       else if ('result' in data) {
         logger.debug`WebSocketRemoteProxy ${this.uuid} execute() success`;
-        request.resolve(data.result);
+        request.resolve(data.result as T);
       } else {
         logger.debug`WebSocketRemoteProxy ${this.uuid} execute() unknown response`;
         request.reject(new Error('Unknown response from worker'));

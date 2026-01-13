@@ -545,6 +545,47 @@ Deno.test({
     }, 10_000);
 
     // ========================================================================
+    // Remote Peer Status and Autoreconnect Integration Tests
+    // ========================================================================
+
+    await step(t,"remote peers pass total worker counts and statuses", async () => {
+      const host = await WebSocketHost.create(3, { port: 0 });
+      const addr = host.server.addr as Deno.NetAddr;
+      const pool = new WorkerPool([]);
+
+      try {
+        await pool.connect(`ws://localhost:${addr.port}`);
+        await delay(100);
+
+        // Execute a task to trigger status exchange
+        const result = await pool.execute<string>(xxhash3Request(testFiles.hello));
+        assertEquals(result, TEST_DATA.hello.xxhash3);
+
+        // Check that we have remote worker status
+        const statuses = pool.getRemoteWorkerStatuses();
+        assertEquals(statuses.length, 1);
+        const status = statuses[0];
+        assertExists(status);
+        assertEquals(status.totalWorkers, 3); // Host has 3 workers
+        assertEquals(status.localWorkers, 3);
+        assertEquals(status.remoteWorkers, 0);
+        assertGreater(status.lastUpdated, 0);
+
+        // Check aggregated counts
+        const aggregated = pool.getAggregatedWorkerCount();
+        assertEquals(aggregated.total, 1); // 1 remote proxy
+        assertEquals(aggregated.remote, 1);
+        assertEquals(aggregated.local, 0);
+        assertEquals(aggregated.remoteActualTotal, 3); // Actual workers on remote
+        assertGreater(aggregated.remoteActualBusy, -1);
+        assertGreater(aggregated.remoteActualIdle, -1);
+      } finally {
+        pool.close();
+        await host.server.shutdown();
+      }
+    }, 10_000);
+
+    // ========================================================================
     // Performance and Stress Tests
     // ========================================================================
 
@@ -1088,4 +1129,110 @@ Deno.test("xxhash3 precomputed values verification", async (t) => {
     const hash = await computeHash(TEST_DATA.largeMB.bytes);
     assertEquals(hash, TEST_DATA.largeMB.xxhash3);
   });
+});
+
+// ========================================================================
+// Separate failing tests for easier filtering
+// ========================================================================
+
+Deno.test("remote peer autoreconnect functionality", async (t) => {
+  // Setup temp directory
+  tempDir = await Deno.makeTempDir({ prefix: "worker_pool_test_" });
+  try {
+    const testFiles: Record<TestDataKey, string> = {} as Record<TestDataKey, string>;
+    for (const [key, data] of Object.entries(TEST_DATA)) {
+      testFiles[key as TestDataKey] = await createTestFile(`${key}.bin`, data.bytes);
+    }
+
+    await step(t,"remote peer autoreconnect functionality", async () => {
+      const host = await WebSocketHost.create(2, { port: 0 });
+      const addr = host.server.addr as Deno.NetAddr;
+      const pool = new WorkerPool([]);
+      const wsUrl = `ws://localhost:${addr.port}`;
+
+      try {
+        // Connect to remote
+        await pool.connect(wsUrl);
+        await delay(100);
+        assertEquals(pool.pool.length, 1);
+        assertEquals(pool.getOfflinePeers().length, 0);
+
+        // Start autoreconnect
+        pool.startAutoreconnect(1000, 100); // 1 second interval, 100ms cooldown for testing
+
+        // Simulate disconnection by calling onRemoteDisconnected directly
+        const length = pool.onRemoteDisconnected(`localhost:${addr.port}`, wsUrl);
+        assertEquals(length, 1);
+        await delay(200);
+
+        // Check that peer is now offline
+        const offlinePeers = pool.getOfflinePeers();
+        assertEquals(offlinePeers.length, 1);
+        assertEquals(offlinePeers[0].host, `localhost:${addr.port}`);
+
+        // Wait for autoreconnect to happen (should reconnect to the same running host)
+        await delay(2000);
+
+        // Check that we reconnected
+        assertEquals(pool.pool.length, 1);
+        assertEquals(pool.getOfflinePeers().length, 0);
+
+        // Verify we can execute tasks
+        const result = await pool.execute<string>(xxhash3Request(testFiles.hello));
+        assertEquals(result, TEST_DATA.hello.xxhash3);
+      } finally {
+        pool.close();
+        await host.server.shutdown();
+      }
+    }, 15_000);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("manual reconnect to offline peer", async (t) => {
+  // Setup temp directory
+  tempDir = await Deno.makeTempDir({ prefix: "worker_pool_test_" });
+  try {
+    const testFiles: Record<TestDataKey, string> = {} as Record<TestDataKey, string>;
+    for (const [key, data] of Object.entries(TEST_DATA)) {
+      testFiles[key as TestDataKey] = await createTestFile(`${key}.bin`, data.bytes);
+    }
+
+    await step(t,"manual reconnect to offline peer", async () => {
+      const host = await WebSocketHost.create(2, { port: 0 });
+      const addr = host.server.addr as Deno.NetAddr;
+      const pool = new WorkerPool([]);
+      const wsUrl = `ws://localhost:${addr.port}`;
+
+      try {
+        // Connect to remote
+        await pool.connect(wsUrl);
+        await delay(100);
+        assertEquals(pool.pool.length, 1);
+
+        // Disconnect by calling onRemoteDisconnected directly
+        pool.onRemoteDisconnected(`localhost:${addr.port}`, wsUrl);
+        await delay(200);
+
+        // Check that peer is offline
+        assertEquals(pool.getOfflinePeers().length, 1);
+
+        // Manual reconnect (to the same running host)
+        const reconnected = await pool.manualReconnect(`localhost:${addr.port}`);
+        assertEquals(reconnected, true);
+        assertEquals(pool.pool.length, 1);
+        assertEquals(pool.getOfflinePeers().length, 0);
+
+        // Verify functionality
+        const result = await pool.execute<string>(xxhash3Request(testFiles.hello));
+        assertEquals(result, TEST_DATA.hello.xxhash3);
+      } finally {
+        pool.close();
+        await host.server.shutdown();
+      }
+    }, 10_000);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
 });
